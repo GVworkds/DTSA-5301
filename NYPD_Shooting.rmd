@@ -1,0 +1,292 @@
+---
+title: "NYPD Shooting Incident Data Report"
+date: "2/4/2022"
+output:
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Importing Project Files
+
+This is an R Markdown document for analyzing the **NYPD Shooting incidence**. First of all we will attach these libraries for our analysis: 
+
+```{r library, echo=TRUE, warning = FALSE, message=FALSE}
+library(tidyverse)
+library(lubridate)
+```
+
+To access the files, we can go to <https://catalog.data.gov/dataset> and find the dataset titled **"NYPD Shooting Incident Data (Historic)"**. We can right click on the CSV button and save the URL address in our **url** variable.
+we can use **read_csv()** method to import the data from given URL into our dataframe as follows:
+
+```{r import_nypd_data, message = FALSE, warning=FALSE}
+url <- "https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD"
+nypd_data <- read_csv(url)
+```
+
+Now as the data is in, we can tidy it up! But first of all, lets take a peek of the data we have.
+
+Let's look at the first 5 rows of the dataset we have:
+
+```{r read_nypd_data, warning = FALSE, message=FALSE}
+head(nypd_data, n=5)
+```
+
+### Description of Data Source
+
+This source data seems to have incidences per borough in the New York city with date and time of crime. Basically we have both borough and precinct information for each incident key. Looks like each incidence is unique. We have Jurisdiction Code for each incidence, which I don't find very useful for my analysis. We have a column (STATISTICAL_MURDER_FLAG) which tells us whether the victim was murdered or not. That can be very useful in our analysis. We also have the perpetrator's race, sex and age group. We also have the victims information. We have some information about the crime location, like exact coordinates. I don't think I am going to use them for my analysis as I am interested in counts of murders per year and how that varies in each borough. Also if **Blacks** were the majority in victims etc. 
+
+### Questions of Interest
+I know there can be numerous questions which can be asked for the given dataset, but I am interested in these:
+
+* **Question 1 :** Is there any correlation between number of shootings and year?
+* **Question 2 :** Is there any correlation between number of murders(as a result of shooting) in each borough and year?
+* **Question 3 :** Is there any correlation between the race of perpetrator and the number of murders?
+* **Question 4 :** Is there any correlation between the race of victim and the number of murders?
+* **Question 5 :** When we see the overall murders in New York then is there a borough where the numbers are maximum?
+
+### Tidying and Transforming
+
+So when we look at columns in this dataset then we can see that many of them are not required for our analysis, so we are going to get rid of those columns. We are not going to use the location information in our analysis so we can remove those columns.
+
+The steps I am going to follow for tidying up data will be piped and this is what I will do in each step:
+
+1. Select all columns ranging from **OCCUR_DATE** to **VIC_RACE**. That way, we will get rid of these columns:
+  
+  * **INCIDENT_KEY**
+  * **X_COORD_CD**
+  * **Y_COORD_CD**
+  * **Latitude**
+  * **Longitude**
+  * **Lon_Lat**
+
+2. Now from the range of columns we have selected, we can get rid of few more which we don't need for our analysis:
+
+  * **OCCUR_TIME**
+  * **LOCATION_DESC**
+  * **PRECINCT**
+  * **JURISDICTION_CODE**
+  
+3. Renamed **STATISTICAL_MURDER_FLAG** to **MURDERED**.
+
+4. **OCCUR_DATE** is not in date format so we will change that as well.
+5. Added 2 new columns **MONTH** and **YEAR** as we will need these columns in our analysis.(Just to see the trend with respect to year and month)
+
+Let us execute these commands all together to do some tidying-up of our raw data:
+
+```{r tidy_nypd_data, warning = FALSE, message=FALSE}
+nypd_data <- nypd_data %>%
+  select(OCCUR_DATE:VIC_RACE) %>%
+  rename(MURDERED = STATISTICAL_MURDER_FLAG) %>%
+  mutate(OCCUR_DATE = mdy(OCCUR_DATE)) %>%
+  mutate(YEAR = year(OCCUR_DATE)) %>%
+  mutate(MONTH = month(OCCUR_DATE)) %>%
+  select(-c(OCCUR_TIME,LOCATION_DESC,PRECINCT,JURISDICTION_CODE))
+nypd_data
+```
+
+We have seen that most of the columns are character columns so we can **factor** them and turn them into **categorical variables** which will give some reasonable output when we summarize the dataset.
+
+```{r factor_columns, warning = FALSE, message=FALSE}
+nypd_data$MURDERED = factor(nypd_data$MURDERED)
+nypd_data$VIC_RACE = factor(nypd_data$VIC_RACE)
+nypd_data$VIC_AGE_GROUP = factor(nypd_data$VIC_AGE_GROUP)
+nypd_data$VIC_SEX = factor(nypd_data$VIC_SEX)
+nypd_data$BORO = factor(nypd_data$BORO)
+nypd_data$PERP_AGE_GROUP = factor(nypd_data$PERP_AGE_GROUP)
+nypd_data$PERP_SEX = factor(nypd_data$PERP_SEX)
+nypd_data$PERP_RACE = factor(nypd_data$PERP_RACE)
+```
+
+Now lets see the summary of data we have :
+
+```{r data_summary1, warning = FALSE, message=FALSE}
+summary(nypd_data)
+```
+
+As we can see that the years range from **2006-2020**. And the total number of murders is 4500 out of total number of shootings which is around 23000. We can start with our first visualization to see if there is any effect on number of murders with respect to YEAR and also on the race of the victim. This might be my personal bias, to try to look for more number of killings for **Blacks**. But I noticed it when I saw the result of summary() earlier. There are some unknowns/missing data but still the numbers for **Blacks** are maximum, So lets do some visualizations!
+
+### Visualization 1 :: Total number of Shootings per year
+
+Now I want to see how the number of shootings fluctuate with each year. Does it say anything to us? So lets plot a **histogram** and see that.
+I used **ggplot()** here and used YEAR on x-axis. Also the labels will range from 2006 to 2020. 
+If I write the labels normally then they overlap so I have tilted them at an angle of 45 degrees.
+By using labs() method I have used custom labels for title and X and Y axes labels. Again I have piped all the commands and executed them together as follows:
+
+```{r nypd_histogram, message = FALSE, warning=FALSE}
+nypd_data %>%
+  ggplot(aes(x = YEAR)) +
+  geom_histogram(fill = "steelblue") +
+  scale_x_continuous(breaks = c(2006:2020), labels = c(2006:2020)) +
+  theme(axis.text.x = element_text(angle = 45)) +
+  labs(title = "Total number of Shootings per year", x="Year" , y="Number of Shootings")
+```
+
+In the histogram we can clearly see the number is suddenly rising in 2020. It started with high count in 2006, but came down to a steady value in 2017,2018 & 2019. And then it jumped back up again. Looks like with advent of covid-19 the numbers started shooting up again? I am not sure if I should make that conclusion but the data looks legitimate as far as the spike is concerned. Covid-19 has triggered number of crimes!
+
+Now we can see how many victims were murdered as a result of that shooting incident. So we can filter our data based on column **MURDERED**
+
+```{r nypd_murdered, warning = FALSE, message=FALSE}
+nypd_data_murdered <- nypd_data %>% 
+  filter(MURDERED == TRUE)
+```
+
+### Visualization 2 :: Total number of Murders per Victim-Race
+
+Now lets do one more visualization. When we see different kinds of race in the victims we will see that most of them were Black.We saw this in our summary data now we can do the visualization for the same.
+Lets see which all race do we have here:
+
+```{r distinct_vic_race, warning = FALSE, message=FALSE}
+distinct(nypd_data_murdered,VIC_RACE)
+```
+
+We don't need **UNKNOWN** race for our analysis. This is a type of **missing data** so we can filter the data by removing all the unknowns:
+
+```{r handle_missing_data, warning = FALSE, message=FALSE}
+nypd_data_murdered <- nypd_data_murdered %>%
+  filter(VIC_RACE != "UNKNOWN")
+```
+
+Now lets see the summary of data we have :
+
+```{r data_summary2, warning = FALSE, message=FALSE}
+summary(nypd_data_murdered)
+```
+
+As we don't have any missing race (of victim) in our data so we can do a Bar plot to see how many victims do we have for each race:
+
+```{r bar_plot, warning = FALSE, message=FALSE}
+#Bar plot for number of murders per race
+ggplot(data = nypd_data_murdered,aes(x = VIC_RACE)) +
+  geom_bar(fill = "steelblue") +
+  theme(axis.text.x = element_text(angle = 90)) +
+  labs(title = "Total number of Murders per Victim-Race", x="Race of Victim" , y="Total Number of Murders")
+
+```
+
+We can see from the bar plot that the maximum number of victims were from the **Black** community, that is what we saw in our first summary and this visualization confirms that.
+
+### Visualization 3 :: Total number of Murders per Suspect-Race
+
+But what about the race of the perpetrator? Was it maximum for non-Blacks? Lets do a quick visualization and see that.
+First of all, lets clear the missing values :
+
+```{r handle_missing_data2, warning = FALSE, message=FALSE}
+nypd_data_murdered <- nypd_data_murdered %>%
+  filter(PERP_RACE != "UNKNOWN")
+```
+
+That's a big number actually! Removing them might give us biased results. As we don't know who they are. What if they are Whites? Then our analysis will totally change!
+
+```{r bar_plot2, warning = FALSE, message=FALSE}
+#Bar plot for number of murders per race of perpetrator
+ggplot(data = nypd_data_murdered,aes(x = PERP_RACE)) +
+  geom_bar(fill = "steelblue") +
+  theme(axis.text.x = element_text(angle = 90)) +
+  labs(title = "Total number of Murders per Perpetrator-Race", x="Race of Perpetrator" , y="Total Number of Murders")
+
+```
+
+So the maximum number of perpetrators are also **Blacks**. So I don't see a bias when both victims as well as the perpetrators were mostly black! But what if there was a bias during sampling? Why do we have so many unknowns in perpetrator's race? If we check the race of only the victims then that would be definitely a biased analysis. So we should see both sides of the coin just to mitigate our personal bias.
+
+### Visualization 4 :: Total number of Murders per Borough
+
+We can do a Bar plot to see how many victims do we have for each borough:
+
+```{r bar_plot_borough, warning = FALSE, message=FALSE}
+#Bar plot for number of murders per borough
+ggplot(data = nypd_data_murdered,aes(x = BORO)) +
+  geom_bar(fill = "green") +
+  theme(axis.text.x = element_text(angle = 45)) +
+  labs(title = "Total number of Murders per Borough", x="Borough" , y="Total Number of Murders")
+
+```
+
+We can see that the maximum number of murders happened in **BROOKLYN**. This seems to be the most unsafe borough in New York. I had seen in news earlier and I had a kind of personal bias towards this, but the data proves the fact.
+
+We will do few more visualizations in next section as well.
+
+### Model
+
+Lets do a scatterplot to start with. This is also a kind of visualization. A **Scatterplot** is a graph in which the values of two variables are plotted along two axes, with the pattern of the resulting points revealing any correlation present.
+
+```{r scatterplot ,message = FALSE, warning=FALSE}
+nypd_data_grouped_with_year_boro <- nypd_data_murdered %>%
+  group_by(YEAR,BORO) %>%
+  summarize(Total_murders = n()) %>%
+  select(YEAR,Total_murders,BORO) %>%
+  ungroup()
+
+nypd_data_murdered <- nypd_data_murdered %>%
+  group_by(YEAR) %>%
+  summarize(Total_murders = n()) %>%
+  select(YEAR,Total_murders) %>%
+  ungroup()
+nypd_data_murdered %>%
+  ggplot(aes(x = YEAR, y = Total_murders)) +
+    geom_point(mapping = aes(x = YEAR, y = Total_murders))
+```
+
+This seems to have a declining trend. Now we can add the regression line (doesn't have to be a straight line though) to our scatterplot. As plots constructed with ggplot() can have variety of geometry , its common to add prediction(regression) line to the plot. We will use a bivariate smoother **loess** for our analysis so we can pass method parameter as **loess** :
+
+```{r regression_line1 ,message = FALSE, warning=FALSE}
+nypd_data_murdered %>%
+  ggplot(aes(x = YEAR, y = Total_murders)) +
+    geom_point(mapping = aes(x = YEAR, y = Total_murders)) +
+    geom_smooth(method = loess, se = FALSE)
+```
+
+This model does not draw a straight line like standard linear regression. This draws a smooth curve in scatter plot such that the variance of residuals is minimized. So the prediction error is minimum in this model. This can take care of the outliers pretty well. We can see that in our scatterplot. We saw in our first scatterplot that we do have some outliers in our data. So this model will be best fit!
+
+The model is pretty close to our analysis as the number of murders kept decreasing until 2019 and then we have an outlier for 2020! Sudden jump! 
+
+We can add a confidence interval around the regression curve by setting **se** as TRUE:
+
+```{r regression_line2 ,message = FALSE, warning=FALSE}
+nypd_data_murdered %>%
+  ggplot(aes(x = YEAR, y = Total_murders)) +
+    geom_point(mapping = aes(x = YEAR, y = Total_murders)) +
+    geom_text(aes(label=YEAR, check_overlap = TRUE), nudge_x = 0.5, nudge_y = 0.25) +
+    geom_smooth(method = loess, se = TRUE) +
+    labs(title = "Total number of murders per year") +
+    scale_x_continuous(name="Year") +
+    scale_y_continuous(name="Total Murders")
+```
+
+So the regression curve looks pretty good even for the outliers , 2006 and 2020 !
+
+We can do one more visualization to see how different **Boroughs** in New York have this trend with respect to year. We can use **Facets** which is another way of graphing categorical variables by splitting the plot into multiple panels. We can see in these facets that the trend is more or less same in each borough:
+
+```{r facets ,message = FALSE, warning=FALSE}
+nypd_data_grouped_with_year_boro %>%
+  ggplot(aes(x = YEAR, y = Total_murders)) +
+    geom_point() +
+    facet_wrap(vars(BORO)) +
+    geom_smooth(method = loess, se = FALSE) +
+    ggtitle("Number of Murders by each Borough and Year") +
+    theme_dark() +
+    xlab("Year") +
+    ylab("Number of Murders")
+```
+
+We can see clearly that the number of murders in **Brooklyn** has been increasing recently. That trend is little bit visible in **Bronx** and **Manhattan** as well but not that much. 
+In **Staten Island** it has been kind of steady, and it has least number of murders. From that perspective **Staten Island** seems to be most safe borough in New York.
+
+### Conclusion and Identifying Bias
+
+So we saw that the maximum number of murdered victims were **Black**. But the majority of suspects were also **Black**. So there was nothing against Black community as such. If we trust the data we have, then this picture looks okay. But what if the unknowns/missing data in perpetrators were all whites or non-black community? That would be a bias in our sampling data then ! In that case whites would come up as the majority of suspects.
+
+We also saw that Brooklyn had the maximum number of murders so far. That seems to be the most unsafe borough in New York.
+
+We also saw that the numbers kept declining until 2019 but suddenly in 2020 it jumped back up again. What media also kept reporting, this looks like another effect of covid-19 on crime rates in New York.
+
+My personal bias was mostly influenced by media, I had thought of Blacks to be the majority of victims but I had also a bias about the majority of suspects not being Blacks. Only when I did the visualizations I could see it clearly. Media keeps portraying Blacks on the victims-side but the picture looks little different here.
+
+
+### Session Info
+
+```{r session_info, warning = FALSE, message=FALSE}
+sessionInfo()
+```
