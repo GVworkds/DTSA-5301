@@ -1,0 +1,366 @@
+---
+title: "Covid-19 Data Analysis"
+date: "2/3/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Attaching Libraries 
+
+In this R Markdown document we are going to analyze the Covid-19 data from **John Hopkins** github site. First of all we will attach these libraries for our analysis: 
+
+```{r library, echo=TRUE, warning = FALSE, message=FALSE}
+library(tidyverse)
+library(lubridate)
+```
+
+### Description of Data Source
+
+To access the John Hopkins covid-19 data files, we have the urls which all start with <https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/> and the four CSV file names are as follows:
+
+* **time_series_covid19_deaths_global.csv**
+* **time_series_covid19_confirmed_global.csv**
+* **time_series_covid19_deaths_US.csv**
+* **time_series_covid19_confirmed_US.csv**
+
+This is the Covid-19 data repository by **CSSE** (**Center for Systems Science and Engineering**) at **John Hopkins University**. These files contain daily time series summary tables, including confirmed cases and deaths due to Covid-19. First two files shown above refer to global counts and the other two are specific to US counts only. We are going to analyze US data first.
+
+### Importing data files
+
+To start with, we can save these filenames in individual variables.
+We will use **read_csv()** method to import the data from given URL into our respective dataframes as follows:
+
+```{r import_covid_data, message = FALSE, warning=FALSE}
+url_in <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/"
+file_names <- c("time_series_covid19_deaths_global.csv",
+                "time_series_covid19_confirmed_global.csv",
+                "time_series_covid19_deaths_US.csv",
+                "time_series_covid19_confirmed_US.csv")
+urls <- str_c(url_in,file_names)
+global_deaths <- read_csv(urls[1])
+global_cases <- read_csv(urls[2])
+us_cases <- read_csv(urls[4])
+us_deaths <- read_csv(urls[3])
+```
+
+Now as the data is in, we can tidy it up! But first of all, lets take a peek of the data we have.
+
+### Tidying and Transforming US Data
+
+Lets look at the first few records of US cases first:
+
+```{r us_cases, message = FALSE, warning=FALSE}
+head(us_cases)
+```
+
+We have these columns in our table which kind of refer to one variable in our data :
+
+* **UID**
+* **iso2**
+* **iso3**
+* **code3**
+* **FIPS**
+* **Admin2**
+* **Province_State**
+* **Country_Region**
+* **Lat**
+* **Long_**
+* **Combined_Key**
+
+And then we have many columns with date values. So the data is definitely not tidy here. We should have only one column for one variable. So we will be doing these steps to make it tidy:
+
+* Use **pivot_longer()** method to move date columns into rows. After this our dataset will be longer i.e. it will have more number of rows and lesser number of columns.
+* Select columns ranging from **Admin2** to **cases** (Notice that we created **cases** column during pivot)
+* Convert the format of **date** column from character to date object
+* Get rid of columns **Lat** & **Long_**
+* Get first few records of the table and see how it looks like
+
+```{r us_cases_tidy, message = FALSE, warning=FALSE}
+us_cases <- us_cases %>%
+  pivot_longer(cols = -(UID:Combined_Key),names_to = "date",values_to = "cases") %>%
+  select(Admin2:cases) %>%
+  mutate(date = mdy(date)) %>%
+  select(-c(Lat,Long_))
+head(us_cases)
+```
+
+Now we will follow similar steps to tidy-up **us_deaths** but before that we will look at the columns of this table:
+
+```{r us_deaths_view, message = FALSE, warning=FALSE}
+head(us_deaths)
+```
+
+Here also we see similar date columns at the end so we need to pivot them. So we will be doing these steps to make it tidy:
+
+* Use **pivot_longer()** method to move date columns into rows.
+* Select columns ranging from **Admin2** to **deaths** (Notice that we created **deaths** during pivot)
+* Convert the format of **date** column from character to date object
+* Get rid of columns **Lat** & **Long_**
+* Get first few records of the table and see how it looks like
+
+```{r us_deaths_tidy, message = FALSE, warning=FALSE}
+us_deaths <- us_deaths %>%
+  pivot_longer(cols = -(UID:Population),names_to = "date",values_to = "deaths") %>%
+  select(Admin2:deaths) %>%
+  mutate(date = mdy(date)) %>%
+  select(-c(Lat,Long_))
+head(us_deaths)
+```
+
+Now we can join the US cases and US deaths in one table. We will use **full_join()** method:
+
+```{r join_US, message = FALSE, warning=FALSE}
+US <- us_cases %>%
+  full_join(us_deaths)
+head(US)
+```
+
+Now we have one consolidated table for US data. But where are we going with this? Do we need to look at anything specific here?
+
+### Questions of Interest
+
+There can be numerous questions which can be asked for the given data, but I am interested in knowing the answers of these questions:
+
+* **Question 1 :** How does the overall number of cases in US change with time?
+* **Question 2 :** How does the overall number of deaths in US change with time?
+* **Question 3 :** How did the fatality rate keep on changing with time in US?
+* **Question 4 :** Is there any effect of Omicron variant on the fatality  rate? Did Omicron turn out a deadly variant?
+* **Question 5 :** How did the fatality rate keep on changing with time in China?
+
+### Visualizations Prerequisites
+
+For doing the visualizations we will have to group the data and then summarize it.
+
+* We will group the data by **Province_State**, **Country_Region** and **date**
+* Then we summarize the **cases** and **deaths** so that they show total cases and deaths for each state on a certain date
+* We add a new column **fatality_rate** which is total number of deaths divided by total number of cases times 100
+* As we are more interested in fatality rate so we can filter out data with zero cases and deaths.
+
+```{r us_groupby_state, message = FALSE, warning=FALSE}
+us_by_state <- US %>%
+  filter(cases > 0, deaths > 0) %>%
+  group_by(Province_State,Country_Region,date) %>%
+  summarize(cases = sum(cases), deaths = sum(deaths)) %>%
+  mutate(fatality_rate = deaths * 100 / cases) %>%
+  select(Province_State,Country_Region,date,cases,deaths,fatality_rate) %>%
+  ungroup()
+head(us_by_state)
+```
+
+Now we can check the total numbers for US at a particular date, from the above dataset, so we will do one more grouping now :
+
+* We will group the cases by **Country_Region** and **date**
+* Summarize the **cases** and **deaths** so that they show total count for US on each date
+* Update the column **fatality_rate**
+
+```{r us_totals, message = FALSE, warning=FALSE}
+us_totals <- us_by_state %>%
+  group_by(Country_Region,date) %>%
+  summarize(cases = sum(cases), deaths = sum(deaths)) %>%
+  mutate(fatality_rate = deaths * 100 / cases) %>%
+  select(Country_Region,date,cases,deaths,fatality_rate) %>%
+  ungroup()
+head(us_totals)
+```
+
+### Visualization 1 : COVID-19 in US
+
+Lets visualize the covid cases as well as deaths in US for entire timeline we have:
+
+```{r visualization1, message = FALSE, warning=FALSE}
+us_totals %>%
+  filter(cases > 0) %>%
+  ggplot(aes(x = date, y = cases)) + 
+  geom_line(aes(color = "cases")) +
+  geom_point(aes(color = "cases")) +
+  geom_line(aes(y = deaths, color="deaths")) +
+  geom_point(aes(y = deaths, color="deaths")) +
+  scale_y_log10() +
+  theme(legend.position = "bottom",
+        axis.text.x = element_text(angle = 90)) +
+  labs(title = "COVID-19 in US", y = NULL)
+```
+
+So both the cases and number of deaths kept increasing in US. We can see that the cases started increasing more and more towards the end of 2021. That could be because of **Omicron!**
+
+### Visualization 2 : Post-Omicron COVID-19 cases in US 
+
+Lets visualize Post-Omicron COVID-19 cases in US now. As we know that the first case of Omicron variant was registered with CDC on **Nov 22, 2021**. So we will filter our data accordingly:
+
+```{r visualization2, message = FALSE, warning=FALSE}
+us_totals %>%
+  filter(date > "2021-11-22") %>%
+  ggplot(aes(x = date, y = cases)) + 
+  geom_line() +
+  geom_point() +
+  theme(legend.position = "bottom",
+        axis.text.x = element_text(angle = 90)) +
+  labs(title = "Post-Omicron COVID-19 cases in US", y = NULL)
+```
+
+We can see the number of cases kept on increasing each day in US, since Omicron arrived.
+
+### Visualization 3 : Fatality Rates in US
+
+We will see the Fatality Rates in US for the entire timeline we have:
+
+```{r visualization3, message = FALSE, warning=FALSE}
+us_totals %>%
+  ggplot(aes(x = date, y = fatality_rate)) + 
+  geom_line() +
+  geom_point() +
+  scale_y_log10() +
+  theme(legend.position = "bottom",
+        axis.text.x = element_text(angle = 90)) +
+  labs(title = "Fatality Rates in US", y = NULL)
+```
+
+We can see some spikes at the beginning as the number of cases were too low (not all cases were being registered so vigorously then) and even a small number of deaths caused the fatality rate to go very high. We can ignore that part as of now.
+
+### Visualization 4 : Post-Omicron Fatality Rates in US
+
+Now we can see the effect of Omicron on the overall fatality rate if any. Lets filter data after Nov 22, 2021 when the first case of Omicron variant was registered with CDC:
+
+```{r visualization4, message = FALSE, warning=FALSE}
+us_after_nov11 <- US %>%
+  filter(cases > 0, deaths > 0, date > "2021-11-22") %>%
+  group_by(Province_State,Country_Region,date) %>%
+  summarize(cases = sum(cases), deaths = sum(deaths)) %>%
+  mutate(fatality_rate = deaths * 100 / cases) %>%
+  select(Province_State,Country_Region,date,cases,deaths,fatality_rate) %>%
+  ungroup()
+
+us_totals_after_nov11 <- us_after_nov11 %>%
+  group_by(Country_Region,date) %>%
+  summarize(cases = sum(cases), deaths = sum(deaths)) %>%
+  mutate(fatality_rate = deaths * 100 / cases) %>%
+  select(Country_Region,date,cases,deaths,fatality_rate) %>%
+  ungroup()
+
+us_totals_after_nov11 %>%
+  ggplot(aes(x = date, y = fatality_rate)) + 
+  geom_line() +
+  geom_point() +
+  scale_y_log10() +
+  theme(legend.position = "bottom",
+        axis.text.x = element_text(angle = 90)) +
+  labs(title = "Post-Omicron Fatality Rates in US", y = NULL)
+```
+
+We can see clearly that even though we had **Omicron** variant in the end of November 2021, it could not affect the fatality rate much. So Omicron was not a deadly variant, rather it was having high transmission rate as compared to the other variants. It just made the number of new covid cases go higher and higher but the overall fatality rate kept on decreasing.
+
+### Visualization 5 : Post-Omicron Fatality rates in China
+
+Now we can do one more visualization to see how did the fatality rate in China change with time. So we can tidy the global data first. Steps are similar to what we did for US data above. We join the global-cases and global-deaths in one table and then filter according to **"Country_Region == China"** to get all data relevant to China.
+
+```{r china_data_analysis, message = FALSE, warning=FALSE}
+global_cases <- global_cases %>% 
+  pivot_longer(cols = -c(`Province/State`,`Country/Region`,Lat,Long),names_to = "date",values_to = "cases") %>%
+  select(-c(Lat,Long))
+
+global_deaths <- global_deaths %>% 
+  pivot_longer(cols = -c(`Province/State`,`Country/Region`,Lat,Long),names_to = "date",values_to = "deaths") %>%
+  select(-c(Lat,Long))
+
+global <- global_cases %>%
+  full_join(global_deaths) %>%
+  rename(Province_State = `Province/State`,Country_Region = `Country/Region`) %>%
+  mutate(date = mdy(date))
+
+china_data <- global %>%
+  filter(Country_Region == "China")
+```
+
+Now we can plot the fatality rate in China, for post-Omicron period as shown below :
+
+```{r visualization5, message = FALSE, warning=FALSE}
+china_data_group1 <- china_data %>%
+  filter(cases > 0, deaths > 0, date > "2021-11-22") %>%
+  group_by(Province_State,Country_Region,date) %>%
+  summarize(cases = sum(cases), deaths = sum(deaths)) %>%
+  mutate(fatality_rate = deaths * 100 / cases) %>%
+  select(Province_State,Country_Region,date,cases,deaths,fatality_rate) %>%
+  ungroup()
+
+china_data_totals <- china_data_group1 %>%
+  group_by(Country_Region,date) %>%
+  summarize(cases = sum(cases), deaths = sum(deaths)) %>%
+  mutate(fatality_rate = deaths * 100 / cases) %>%
+  select(Country_Region,date,cases,deaths,fatality_rate) %>%
+  ungroup()
+
+#Plot for China data
+china_data_totals %>%
+  ggplot(aes(x = date, y = fatality_rate)) + 
+  geom_line() +
+  geom_point() +
+  scale_y_log10() +
+  theme(legend.position = "bottom",
+        axis.text.x = element_text(angle = 90)) +
+  labs(title = "Post-Omicron Fatality rates in China", y = NULL)
+
+```
+
+In China as well, the fatality rate kept decreasing after Omicron, though the range of values seems larger than US. Here the fatality rate values are ranging from 4 to 5 as we can see above. But in case of US it was somewhere between 1 and 2 only. Maybe because the transmission of this variant in China is less as compared to US. If a value in denominator goes down then the value of fraction increases!
+
+### Model
+
+Now we need to come up with a model to fit these covid cases very well. Lets do a scatterplot to start with. This is also a kind of visualization. A **Scatterplot** is a graph in which the values of two variables are plotted along two axes, with the pattern of the resulting points revealing any correlation present.
+
+```{r scatterplot ,message = FALSE, warning=FALSE}
+us_totals_after_nov11 %>%
+  ggplot(aes(x = date, y = cases)) +
+    geom_point(mapping = aes(x = date, y = cases))
+```
+
+This seems to have a increasing trend. Now we can add the regression line (doesn't have to be a straight line though) to our scatterplot. As plots constructed with ggplot() can have variety of geometry , its common to add prediction(**regression**) line to the plot. We will use a **Bivariate Smoother** **loess** for our analysis so we can pass method parameter as **loess** :
+
+```{r regression_line1 ,message = FALSE, warning=FALSE}
+us_totals_after_nov11 %>%
+  ggplot(aes(x = date, y = cases)) +
+    geom_point(mapping = aes(x = date, y = cases)) +
+    geom_smooth(method = loess, se = FALSE, col = "red")
+```
+
+This model does not draw a straight line like standard linear regression. This draws a smooth curve in scatter plot such that the variance of residuals is minimized. So the prediction error is minimum in this model. This can take care of the outliers pretty well. 
+Lets see how would a **linear model** fit in this case :
+
+```{r regression_line2 ,message = FALSE, warning=FALSE}
+us_totals_after_nov11 %>%
+  ggplot(aes(x = date, y = cases)) +
+    geom_point(mapping = aes(x = date, y = cases)) +
+    geom_smooth(method = lm, se = FALSE, col = "green")
+```
+
+We can see that the straight regression line doesn't fit very well!
+
+We can add a confidence interval around the regression curve by setting **se** as TRUE:
+
+```{r regression_line3 ,message = FALSE, warning=FALSE}
+us_totals_after_nov11 %>%
+  ggplot(aes(x = date, y = cases)) +
+    geom_point(mapping = aes(x = date, y = cases)) +
+    geom_smooth(method = loess, se = TRUE)
+```
+
+We hardly have any outliers so the regression curve seems to fit very well!
+
+### Conclusion and Identifying Bias
+
+What we observed in this analysis is, both the covid-19 cases as well as deaths have kept on increasing since the very beginning but cases started increasing more and more after the arrival of Omicron. We all know that **CDC** registered first case with this variant on **Nov 22, 2021**. I had this information already so I wanted to confirm that in our analysis. This might be an example of **Personal Bias**. Sometimes media does affect our bias but in this case, it kind-of helped me with my analysis and confirmed the same.
+
+I also had this idea (again influenced by media) that **Omicron** has high rate of transmission but still it is not a deadly variant as it is not killing more number of people as compared to other variants. We confirmed that in our analysis as well, **fatality rate** (termed as **CFR**, **Case Fatality Rate**) kept on decreasing after Nov 22, 2021.
+
+We all have seen in media, how **China** has consistently maintained **zero covid policy** and how strict it is, when it comes to lockdown and all. So fatality rate kept decreasing there as well but faster than US. We also saw that the **CFR** value for China ranged from 4-5 as compared to US which ranged from 1-2. As the daily number of covid cases in China is less than US so even for fewer deaths in China, the fatality rate appears to be larger than US. 
+
+What if China is reporting less number of cases than it is actually having on daily basis? If that is the case then we do have **Sampling Bias** here!
+
+### Session Info
+
+```{r session_info}
+sessionInfo()
+```
+
